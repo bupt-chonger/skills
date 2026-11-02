@@ -146,7 +146,18 @@ def probe(path, entries="format"):
 
 
 # ── FLAC 转制 ──────────────────────────────────────────────
+def has_video_stream(path):
+    """源文件是否含视频流（封面）。"""
+    info = probe(path, "stream")
+    return any(s.get("codec_type") == "video" for s in info.get("streams", []))
+
+
 def to_flac(src, dst, meta, lrc_text=None, cover_jpg=None):
+    """转 FLAC。
+
+    源文件可能已带封面流（mjpeg），也可能没有（纯音频下载）。
+    带封面时用 -c:v copy 原样搬运；没有封面时用 cover_jpg 单独注入 PICTURE 块。
+    """
     cmd = ["ffmpeg", "-v", "error", "-y", "-i", src,
            "-map", "0:a", "-map", "0:v",      # ← 必须带 0:v，否则封面丢失
            "-c:a", "flac", "-ar", "44100",
@@ -163,17 +174,85 @@ def to_flac(src, dst, meta, lrc_text=None, cover_jpg=None):
     cmd.append(dst)
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not os.path.exists(dst):
-        raise RuntimeError((r.stderr or "").strip()[:300])
+        # 源文件无视频流 → 去掉 -map 0:v 重试，再外挂封面
+        if not has_video_stream(src):
+            cmd2 = [c for c in cmd]
+            cmd2 = cmd2[:cmd2.index("-map")+1] + ["-map", "0:a"] + \
+                   cmd2[cmd2.index("-map", cmd2.index("-map")+1)+2:]
+            cmd2 = [c for c in cmd2 if c not in ("-c:v", "copy", "-disposition:v", "attached_pic")]
+            r = subprocess.run(cmd2, capture_output=True, text=True)
+            if r.returncode != 0 or not os.path.exists(dst):
+                raise RuntimeError((r.stderr or "").strip()[:300])
+            if cover_jpg:
+                inject_flac_picture(dst, cover_jpg)
+        else:
+            raise RuntimeError((r.stderr or "").strip()[:300])
+
+
+def inject_flac_picture(flac_path, jpg_path):
+    """向 FLAC 注入 PICTURE 块（源文件无封面流时的补救）。"""
+    jpeg = open(jpg_path, "rb").read()
+    pic = build_flac_picture(jpeg)
+    d = open(flac_path, "rb").read()
+    assert d[:4] == b"fLaC"
+    off = 4
+    blocks = []
+    while off < len(d):
+        hdr = d[off]
+        last, bt = hdr & 0x80, hdr & 0x7F
+        sz = int.from_bytes(d[off + 1:off + 4], "big")
+        blocks.append([last, bt, d[off:off + 4 + sz]])
+        off += 4 + sz
+        if last:
+            break
+    # PICTURE 必须放在 STREAMINFO 之后、VORBIS_COMMENT 之前
+    new_blocks = []
+    for b in blocks:
+        if b[1] == 6:
+            continue                      # 丢弃原有 PICTURE
+        new_blocks.append(b)
+        if b[1] == 0:                    # STREAMINFO 之后插入 PICTURE
+            new_blocks.append([0, 6, pic])
+    if not any(b[1] == 6 for b in new_blocks):
+        new_blocks.append([0, 6, pic])
+    body = b""
+    for i, (last, bt, raw) in enumerate(new_blocks):
+        body += bytes([(0x80 if i == len(new_blocks) - 1 else 0) | bt]) + raw[1:]
+    open(flac_path, "wb").write(b"fLaC" + body)
+
+
+def build_flac_picture(jpeg):
+    """构造 FLAC METADATA_BLOCK_PICTURE（type 6）。"""
+    mime = b"image/jpeg"
+    desc = b"Cover"
+    def be32(n):
+        return struct.pack(">I", n)
+    body = (be32(3)                       # 图片类型 3 = Cover front
+            + be32(len(mime)) + mime
+            + be32(len(desc)) + desc
+            + be32(1000) + be32(1000)     # 宽高（占位，不影响显示）
+            + be32(24) + be32(0)          # 色深 / 索引色数
+            + be32(len(jpeg)) + jpeg)
+    return bytes([6]) + struct.pack(">I", len(body))[1:] + body
 
 
 def to_mp3(src, dst, meta, lrc_text=None, cover_jpg=None):
-    """转 MP3 320K：先转码（带封面流），再手工注入 APIC/USLT/SYLT。"""
+    """转 MP3 320K：先转码（带封面流），再手工注入 APIC/USLT/SYLT。
+
+    源文件无视频流时转码会因 -map 0:v 失败，此时只映射音频，
+    封面改由 build_apic 直接写入 ID3。
+    """
     tmp = dst + ".base.mp3"
-    cmd = ["ffmpeg", "-v", "error", "-y", "-i", src,
-           "-map", "0:a", "-map", "0:v",
-           "-c:a", "libmp3lame", "-b:a", "320k", "-ar", "44100",
-           "-c:v", "mjpeg", "-disposition:v", "attached_pic",
-           "-id3v2_version", "3"]
+    has_v = has_video_stream(src)
+    cmd = ["ffmpeg", "-v", "error", "-y", "-i", src]
+    if has_v:
+        cmd += ["-map", "0:a", "-map", "0:v",
+                "-c:a", "libmp3lame", "-b:a", "320k", "-ar", "44100",
+                "-c:v", "mjpeg", "-disposition:v", "attached_pic"]
+    else:
+        cmd += ["-map", "0:a",
+                "-c:a", "libmp3lame", "-b:a", "320k", "-ar", "44100"]
+    cmd += ["-id3v2_version", "3"]
     for k, v in meta.items():
         if v is None:
             continue
