@@ -154,6 +154,49 @@ pr=ucpro&fr=pc&uc_param_str=
 pr=ucpro&fr=android&uc_param_str=
 ```
 
+### 大小限制（code=23018）⚠️
+
+免转存直链对**单个文件大小有上限**。超过时接口返回：
+
+```json
+{"code": 23018, "message": "download file size limit[<file_hash>]"}
+```
+
+message 里的 hash 就是该文件的 `fid`。
+
+**实测边界**（2026-10-31）：
+
+| 文件大小 | 结果 |
+|---|---|
+| 9.2 MB | ✅ 可取链 |
+| 36.7 MB | ✅ 可取链 |
+| 37.6 MB | ✅ 可取链 |
+| 53.7 MB | ❌ code=23018 |
+| 54.3 MB | ❌ code=23018 |
+
+上限落在 **40–50 MB** 区间。命中限制时的可选路径：
+
+1. **改用 MP3 版本**（同一首歌通常同时提供 FLAC + MP3，MP3 体积小一个量级，几乎必过）
+2. **换分享源** —— 不同分享站的同一个文件大小一致但直链策略可能不同
+3. **转存到自己网盘再下载** —— `sharepage/save` 端点，但需要登录态
+   （免登录会返回 `code=31001 require login [guest]`）
+4. **找无损母带之外的其它分享** —— 论坛常同时提供「FLAC 臻品母带」与「MP3-320K」
+
+**注意**：该限制只影响"免转存直链"取链阶段，与文件实际可访问性无关。
+
+### 伪 FLAC 陷阱 ⚠️
+
+有些分享标注为 `.flac` 的文件**实际是 Vorbis**（重度压缩的伪无损）：
+
+```
+codec_name=vorbis    ← FLAC 容器里装的是 Ogg Vorbis
+bit_rate=87750       ← 87 kbps，远低于无损标准
+```
+
+**识别方法**：`ffprobe` 显示 `codec_name=vorbis` 即为伪 FLAC。
+这种文件的音质**不如 320K MP3**，不要误当作无损。真正的 FLAC 应显示
+`codec_name=flac` 且 bit_rate 通常在 700–1400 kbps（44.1kHz/16bit 立体声）。
+
 **响应**
 
 ```json

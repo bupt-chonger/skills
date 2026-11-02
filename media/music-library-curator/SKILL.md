@@ -205,9 +205,22 @@ PC / Android 端云盘上传入口只接受**音频格式**（MP3 / FLAC / WAV /
 
 按需查阅：
 
-- `references/netdisk-api.md` — 夸克网盘三个接口的完整参数、错误码表、412 排查清单
+- `references/source-discovery.md` — **音源发现实操流程**（先看这个：找源的顺序、各站点提取码可见性、实战案例）
+- `references/netdisk-api.md` — 夸克网盘三个接口的完整参数、错误码表、412 排查清单、大小限制
 - `references/tag-formats.md` — 三种格式的标签字节级结构、ID3 帧构造代码
 - `references/netease-mechanism.md` — 网易云云盘匹配机制详解与官方文档摘录
+
+## 五·补 · 找源的优先级（速记）
+
+```
+① QQ 音乐官方接口   → 拿 songmid + 歌词（也可能直接是下载源）
+② PanSou 聚合搜索   → 网盘链接，password 字段常直接给提取码
+③ HiFi 类论坛       → 质量最高，但提取码多需回帖
+④ 播放器站          → higequ/gequbao，内嵌免密夸克链接 + 封面图 ⭐
+⑤ 播放器站是转折点  → 免码 + 带封面，往往还有多个分享可互补
+```
+
+**别死磕一个源**：论坛要提取码时，换站比研究绕过快得多。
 
 ---
 
@@ -219,4 +232,5 @@ PC / Android 端云盘上传入口只接受**音频格式**（MP3 / FLAC / WAV /
 - [ ] 确认目标格式的歌词承载方式（MP3 兼容最广 / FLAC 最规范）
 - [ ] 转码时清除了 major_brand 等污染字段
 - [ ] 产出后跑 `verify_library.py`，六项指标全绿
+- [ ] 若是伪 FLAC（`codec_name=vorbis`），改用 MP3 或另找无损源
 - [ ] 若目标是网易云：准备同名 `.lrc` + `.jpg` 侧车，走本地导入路径而非直接上传

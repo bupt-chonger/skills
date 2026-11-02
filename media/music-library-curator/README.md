@@ -67,7 +67,8 @@ python3 scripts/verify_library.py "Album [FLAC]" --lossless --src-dir ./src
 
 | 文档 | 内容 |
 |---|---|
-| `references/netdisk-api.md` | 夸克三个接口的完整参数、错误码表、412 排查清单 |
+| `references/source-discovery.md` | **音源发现实操流程**：找源优先级、各站点提取码可见性、实战案例 |
+| `references/netdisk-api.md` | 夸克三个接口的完整参数、错误码表、412 排查清单、大小限制 |
 | `references/tag-formats.md` | 三种容器的字节级标签结构、ID3 帧构造代码 |
 | `references/netease-mechanism.md` | 网易云云盘匹配机制详解与官方文档摘录 |
 
